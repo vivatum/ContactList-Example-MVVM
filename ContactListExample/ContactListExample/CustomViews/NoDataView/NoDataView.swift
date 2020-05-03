@@ -1,6 +1,6 @@
 //
 //  NoDataView.swift
-//  ContactListExample
+//  LocationWeather
 //
 //  Created by Vivatum on 12/04/2020.
 //  Copyright © 2020 com.vivatum. All rights reserved.
@@ -19,7 +19,9 @@ final class NoDataView: UIView {
     
     public var message: NoDataMessage = .noMessage {
         didSet {
-            self.titleLabel.text = message.rawValue
+            DispatchQueue.main.async {
+                self.titleLabel.text = self.message.rawValue
+            }
         }
     }
     

@@ -20,37 +20,35 @@ protocol ContactServiceProtocol: class {
 
 final class ContactService: ContactServiceProtocol {
     
-    static let shared = ContactService()
-    private init(){}
+    static let shared = ContactService(cnHelper: ContactValueHelper())
+    private var cnContactHelper: ContactValueProtocol?
+    
+    private init(cnHelper: ContactValueProtocol){
+        self.cnContactHelper = cnHelper
+    }
+    
     
     public func updateLocalCollection(_ completion: @escaping ((Result<String, ActionError>) -> Void)) {
         DDLogInfo("Start update local collection")
         
-        DispatchQueue.global(qos: .background).async {
-            RESTHelper.loadContactListData { result in
-                switch result {
-                case .success(let collection):
-                    DDLogInfo("Load contact list Success")
-                    
-                    guard let contacts = collection else {
-                        completion(.failure(.parser("Can't get parsed collection")))
-                        return
+        ContactFetchService.shared.fetchContacts { result in
+            switch result {
+            case .success(let collection):
+                DDLogInfo("Load contact list Success")
+                
+                RealmService.shared.synchronizeCollection(collection) { result in
+                    switch result {
+                    case .success(let message):
+                        DDLogInfo("Local Contact collection synchronized")
+                        completion(.success(message))
+                    case .failure(let error):
+                        DDLogError("Can't synchronize Contact collection: \(error.localizedDescription)")
+                        completion(.failure(error))
                     }
-                    
-                    RealmService.shared.synchronizeCollection(contacts) { result in
-                        switch result {
-                        case .success(let message):
-                            DDLogInfo("Local Contact collection synchronized")
-                            completion(.success(message))
-                        case .failure(let error):
-                            DDLogError("Can't synchronize Contact collection: \(error.localizedDescription)")
-                            completion(.failure(error))
-                        }
-                    }
-                case .failure(let error):
-                    DDLogError("Can't load Contact list: \(error.localizedDescription)")
-                    completion(.failure(error))
                 }
+            case .failure(let error):
+                DDLogError("Can't load Contact list: \(error.localizedDescription)")
+                completion(.failure(error))
             }
         }
     }
@@ -68,7 +66,7 @@ final class ContactService: ContactServiceProtocol {
         }
         
         if selectFavorited {
-            let predicate = NSPredicate(format: "\(ContactKey.isFavoritedKey) == %d", true)
+            let predicate = NSPredicate(format: "\(ContactKey.isFavoritedKey.rawValue) == %d", true)
             collection = collection.filter(predicate)
         }
         
@@ -78,7 +76,7 @@ final class ContactService: ContactServiceProtocol {
         }
         
         sectionHeaders.forEach({ header in
-            let predicate = NSPredicate(format: "\(ContactKey.lastNameKey) BEGINSWITH[cd] %@", header)
+            let predicate = NSPredicate(format: "\(ContactKey.lastNameKey.rawValue) BEGINSWITH[cd] %@", header)
             dataSource[header] = collection.filter(predicate).sorted(by: ["lastName", "firstName"])
         })
         
@@ -86,7 +84,7 @@ final class ContactService: ContactServiceProtocol {
     }
     
     private func getHeaders(_ contacts: Results<Contact>) -> [String]? {
-        guard let lastNames = contacts.value(forKey: ContactKey.lastNameKey) as? [String] else {
+        guard let lastNames = contacts.value(forKey: ContactKey.lastNameKey.rawValue) as? [String] else {
             DDLogError("Can't get lastName collection")
             return nil
         }
@@ -107,13 +105,23 @@ final class ContactService: ContactServiceProtocol {
             return
         }
         
-        let contactRef = ThreadSafeReference(to: selectedContact)
-        self.getCNContact(for: contactRef) { result in
-            switch result {
-            case .success(let cnContact):
-                completion(.success(cnContact))
-            case .failure(let error):
-                completion(.failure(error))
+        guard let cnHelper = self.cnContactHelper else {
+            let errorMessage = "Missing cnContactHelper"
+            DDLogError(errorMessage)
+            completion(.failure(.custom(errorMessage)))
+            return
+        }
+    
+        cnHelper.getCNContact(selectedContact) { cnContact in
+            if let value = cnContact {
+                DispatchQueue.main.async {
+                    completion(.success(value))
+                }
+            }
+            else {
+                let errorMessage = "Can't get CNContact value"
+                DDLogError(errorMessage)
+                completion(.failure(.custom(errorMessage)))
             }
         }
     }
@@ -124,96 +132,6 @@ final class ContactService: ContactServiceProtocol {
         return contactList?[indexPath.row]
     }
     
-    private func getCNContact(for contactRef: ThreadSafeReference<Contact>, handler: @escaping ((Result<CNContact, ActionError>) -> Void)) {
-        DispatchQueue.global(qos: .background).async {
-            autoreleasepool {
-                do {
-                    let realm = try Realm()
-                    guard let contact = realm.resolve(contactRef) else {
-                        let errorMessage = "Realm: Contact does not exist"
-                        DDLogError(errorMessage)
-                        handler(.failure(.dataBase(errorMessage)))
-                        return
-                    }
-                    
-                    guard let cnContact = self.getCNContactValue(for: contact) else {
-                        let errorMessage = "Can't get cnContact"
-                        DDLogError(errorMessage)
-                        handler(.failure(.custom(errorMessage)))
-                        return
-                    }
-                    
-                    DDLogInfo("cnContact object created")
-                    handler(.success(cnContact))
-                }
-                catch let error {
-                    let errorMessage = "Realm: Can't update exist Contact object: \(error.localizedDescription)"
-                    DDLogError(errorMessage)
-                    handler(.failure(.dataBase(errorMessage)))
-                }
-            }
-        }
-    }
-    
-    private func getCNContactValue(for item: Contact) -> CNContact? {
-        
-        let contact = CNMutableContact()
-        var givenName = item.firstName
-        
-        if item.isFavorited {
-            givenName = "\u{2B50}" + " " + item.firstName
-        }
-        
-        contact.givenName = givenName
-        contact.familyName = item.lastName
-        contact.emailAddresses = [CNLabeledValue(label: CNLabelHome, value: item.email as NSString)]
-        
-        let phoneNumber = CNLabeledValue(label: CNLabelHome, value: CNPhoneNumber(stringValue: item.phone))
-        let cellNumber = CNLabeledValue(label: CNLabelWork, value: CNPhoneNumber(stringValue: item.cell))
-        contact.phoneNumbers = [phoneNumber, cellNumber]
-        
-        let address = CNMutablePostalAddress()
-        address.street = item.streetName + " " + String(item.streetNumber)
-        address.city = item.city
-        address.state = item.state
-        address.postalCode = item.postcode
-        address.country = item.country
-        let home = CNLabeledValue<CNPostalAddress>(label:CNLabelHome, value:address)
-        contact.postalAddresses = [home]
-
-        self.getImageData(by: item.largePic) { imageData in
-            contact.imageData = imageData
-        }
-        
-        return contact.copy() as? CNContact
-    }
-    
-    private func getImageData(by path: String, closure: @escaping (Data?) -> Void) {
-        guard let url = URL(string: path) else {
-            DDLogError("Can't URL from path")
-            closure(nil)
-            return
-        }
-        
-        guard Network.isReachable else {
-            DDLogError("Network unreachable!")
-            DispatchQueue.main.async {
-                AlertManager.showErrorAlert(ActionError.network("Can't load Contact image").alertContent)
-            }
-            closure(nil)
-            return
-        }
-           
-        do {
-            let imageData = try Data(contentsOf: url)
-            closure(imageData)
-        }
-        catch let error {
-            DDLogError("Can't get contact image data: \(error.localizedDescription)")
-            closure(nil)
-            return
-        }
-    }
     
     // MARK: - Get Updated IndexPath
     

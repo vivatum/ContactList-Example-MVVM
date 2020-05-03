@@ -84,7 +84,8 @@ final class ListTableViewController: UITableViewController {
                 self?.hideAllProgressActivities()
                 
                 if let err = error {
-                   AlertManager.showErrorAlert(err.alertContent)
+                    DDLogError("ActionError content: \(err)")
+                    AlertManager.showErrorAlert(err.alertContent)
                 }
                 
                 if let viewData = self?.dataSource.data.value {

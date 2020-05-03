@@ -38,7 +38,7 @@ final class RealmService {
         }
         
         incomingContacts.forEach({ newContact in
-            let predicate = NSPredicate(format: "\(JSONKey.email) == %@", newContact.email)
+            let predicate = NSPredicate(format: "\(ContactKey.email.rawValue) == %@", newContact.email)
             if let existContact = existingContacts.filter(predicate).first {
                 
                 let newContactComparing = ContactComparing(contact: newContact)
@@ -156,4 +156,28 @@ final class RealmService {
     }
     
     
+    // MARK: - Get Contact by reference
+    
+    public func getContact(by contactRef: ThreadSafeReference<Contact>, _ closure: @escaping ((Result<Contact, ActionError>) -> Void)) {
+        DDLogInfo("Getting Contact by contactRef")
+        DispatchQueue.global(qos: .background).async {
+            autoreleasepool {
+                do {
+                    let realm = try Realm()
+                    guard let contact = realm.resolve(contactRef) else {
+                        let errorMessage = "Realm: Contact does not exist"
+                        DDLogError(errorMessage)
+                        closure(.failure(.dataBase(errorMessage)))
+                        return
+                    }
+                    closure(.success(contact))
+                }
+                catch let error {
+                    let errorMessage = "Realm: Can't get db: \(error.localizedDescription)"
+                    DDLogError(errorMessage)
+                    closure(.failure(.dataBase(errorMessage)))
+                }
+            }
+        }
+    }
 }

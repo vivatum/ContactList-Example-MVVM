@@ -8,8 +8,6 @@
 
 import UIKit
 import CocoaLumberjack
-import Alamofire
-import AlamofireImage
 import RealmSwift
 
 
@@ -18,7 +16,7 @@ final class ContactTableViewCell: UITableViewCell {
     @IBOutlet weak var picImageView: UIImageView!
     @IBOutlet weak var nameLabel: UILabel!
     @IBOutlet weak var favoriteButton: UIButton!
-    
+        
     var contactData: Contact? {
         didSet {
             populateCellContent()
@@ -30,7 +28,7 @@ final class ContactTableViewCell: UITableViewCell {
         super.awakeFromNib()
         self.picImageView.makeRoundView()
     }
-
+    
     
     // MARK: - Favorite Status Action
     
@@ -57,10 +55,23 @@ final class ContactTableViewCell: UITableViewCell {
         }
         
         DispatchQueue.main.async {
-            self.picImageView?.af.setImage(withURL: url, placeholderImage: UIImage(named: "placeholder_pic"))
+            if let placeholderImage = UIImage(named: "placeholder_pic") {
+                self.picImageView?.image = placeholderImage
+            }
+        }
+        
+        ImageLoader.shared.getImageData(url) { result in
+            switch result {
+            case .success(let data):
+                DispatchQueue.main.async {
+                    self.picImageView?.image = UIImage(data: data)
+                }
+            case .failure(let error):
+                DDLogError("Can't get contact image data: \(error.localizedDescription)")
+            }
         }
     }
-    
+
     private func updateFavoriteButton(with status: Bool) {
         let buttonImage: UIImage? = status ? UIImage(named: "starFavorited") : UIImage(named: "star")
         if let image = buttonImage {

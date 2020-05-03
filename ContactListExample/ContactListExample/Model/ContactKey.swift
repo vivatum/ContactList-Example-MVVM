@@ -8,8 +8,9 @@
 
 import Foundation
 
-struct ContactKey {
-    static let lastNameKey = "lastName"
-    static let firstNameKey = "firstName"
-    static let isFavoritedKey = "isFavorited"
+enum ContactKey: String {
+    case lastNameKey = "lastName"
+    case firstNameKey = "firstName"
+    case email = "email"
+    case isFavoritedKey = "isFavorited"
 }

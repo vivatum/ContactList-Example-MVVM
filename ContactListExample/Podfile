@@ -6,11 +6,7 @@ target 'ContactListExample' do
   use_frameworks!
 
   pod 'RealmSwift'
-
   pod 'CocoaLumberjack/Swift'
-
-  pod 'SwiftyJSON'
   pod 'Alamofire'
-  pod 'AlamofireImage'
 
 end
